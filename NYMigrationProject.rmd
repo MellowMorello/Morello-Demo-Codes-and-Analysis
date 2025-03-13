@@ -1,0 +1,579 @@
+---
+title: "New Yorker Migration Patterns"
+author: "Michael Morello"
+date: "11/30/24"
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+header-includes:
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhf{}
+- \fancyfoot[R]{\thepage}
+- \renewcommand{\headrulewidth}{0pt}
+- \renewcommand{\footrulewidth}{0pt}
+---
+
+
+# Introduction
+The idea that Florida is a cheaper, more appealing alternative to New York has become almost cliché, especially for retirees. Every year, thousands of New Yorkers head south, drawn by Florida’s warm weather, lack of a state income tax, and reputation as a haven for seniors. Yet, beneath the surface of this migration trend lies a surprising truth: New York often outperforms Florida in key measures of affordability, quality of life, and long-term sustainability.
+
+Popular belief paints Florida as a low-cost paradise, but data reveals that the financial benefits of relocating may not be as substantial as assumed. For example, while Florida boasts no state income tax, its average housing costs have surged in recent years, even surpassing New York’s in certain metrics. Additionally, retirees often face challenges in Florida that are seldom discussed—such as limited access to public transportation, overburdened healthcare systems, and exposure to extreme weather events like hurricanes. These factors can significantly impact quality of life, particularly for seniors seeking stability and accessibility.
+
+New York, on the other hand, offers distinct advantages often overshadowed by its reputation for high taxes and expensive living. The state’s robust public transportation infrastructure provides unparalleled mobility for seniors, while its world-class healthcare facilities ensure access to cutting-edge medical services. Moreover, New York’s senior-focused programs and diverse cultural opportunities foster a sense of community and engagement that is difficult to replicate elsewhere. For retirees, these benefits often outweigh the perceived drawbacks, especially when considering the state’s higher household incomes and relatively lower rent burdens.
+
+This analysis is grounded in data from the **2023 American Community Survey**, which offers a comprehensive view of migration patterns, household income, housing affordability, and quality-of-life metrics. By leveraging this dataset, we explore the economic realities, lifestyle benefits, and practical challenges of living in New York versus Florida. In doing so, we hope to challenge assumptions and provide a more balanced perspective on why New York may not only compete with Florida as a retirement destination but, in many ways, surpass it as the ideal place for seniors to spend their golden years.
+
+```{r, include = F}
+knitr::opts_chunk$set(
+  echo = TRUE,       # Show code in the output
+  warning = FALSE,   # Suppress warnings
+  message = FALSE    # Suppress package messages
+)
+
+
+# Clear workspace and free memory
+rm(list = ls())
+gc()
+
+
+options(repos = c(CRAN = "https://cran.r-project.org"))
+install.packages("xfun")
+
+# Load required libraries
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+library(leaflet)
+library(descr)
+library(ggthemes)
+
+# Set working directory and file paths
+directory <- "/Users/Morello/Library/Mobile Documents/com~apple~CloudDocs/NY Migration Project/csv_pus 23"
+
+
+# Load preprocessed RDS files
+NATION_DATA <- readRDS(file.path(directory, "NATION_DATA.rds"))
+PERSONAL_DATA <- readRDS(file.path(directory, "PERSONAL_DATA.rds"))
+
+# Verify data structure
+str(NATION_DATA)
+str(PERSONAL_DATA)
+
+# State lookup table
+state_lookup <- data.frame(
+  STATE = c(1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 
+            26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 
+            47, 48, 49, 50, 51, 53, 54, 55, 56, 72),
+  State_Name = c(
+    "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut",
+    "Delaware", "District of Columbia", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois",
+    "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts",
+    "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire",
+    "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma",
+    "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee",
+    "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
+    "Puerto Rico"
+  )
+)
+
+# Optional: Save the lookup table for reuse
+saveRDS(state_lookup, file.path(directory, "state_lookup.rds"))
+
+
+```
+```{r, include=F}
+options(repos = c(CRAN = "https://cran.r-project.org"))
+install.packages("tinytex")
+
+library(ggplot2)
+library(leaflet)
+library(descr)
+library(dplyr)
+library(ggthemes)
+```
+
+# Analysis of New York Migration Patterns
+Over the past 12 months, migration data reveals significant trends in where New Yorkers have relocated, with Florida emerging as the most popular destination. The data provides valuable insights into the movement of New York's population and the broader implications for the state.
+
+## Key Migration Destinations
+Florida stands out as the leading destination for New Yorkers leaving the state, with 72,424 individuals making the move—more than to any other state in the U.S. Its warm climate, absence of a state income tax, and relatively lower cost of living make it a top choice for those seeking financial relief or a lifestyle change. Florida's strong pull continues to outpace other states, solidifying its role as the primary migration hub for New Yorkers.
+
+```{r, echo = F}
+
+# Filter for individuals who lived in NY a year ago but now live elsewhere
+ny_migration_out <- NATION_DATA %>%
+  filter(MIGSP == 36, STATE != 36) %>%  # MIGSP == 36 indicates lived in NY, STATE != 36 indicates moved out
+  select(StateName = State_Name, PWGTP)  # Rename State_Name to StateName for consistency
+
+# Summarize migration counts to each destination
+migration_table <- ny_migration_out %>%
+  group_by(StateName) %>%
+  summarize(
+    `Total Migrants` = sum(PWGTP, na.rm = TRUE)  # Calculate total migrants using weights
+  ) %>%
+  arrange(desc(`Total Migrants`))  # Sort by the number of migrants
+
+# Format and display the top 25 rows in a polished table
+migration_table %>%
+  head(25) %>%  # Limit to the top 25 destinations
+  kbl(
+    caption = "Top 25 New Yorker Migration Destinations (2023)",
+    digits = 0,  # Remove decimals from the totals for clarity
+    booktabs = TRUE  # Use professional-looking table formatting
+  ) %>%
+  kable_styling(
+    full_width = FALSE,  # Keep the table compact and centered
+    latex_options = c("striped", "hold_position", "scale_down")  # Add styling for PDF output
+  ) %>%
+  column_spec(1, bold = TRUE, width = "6cm") %>%  # Highlight the StateName column and set width
+  column_spec(2, width = "4cm")  # Adjust the width for the Total Migrants column
+
+
+```
+## Florida as a Popular Migration Destination
+While Florida has become a notable destination for New Yorkers, its appeal is often shaped by several specific factors that may not necessarily outweigh the advantages of remaining in New York:
+
+### Tax Policy Considerations:
+Florida’s lack of a state income tax is frequently cited as an advantage, particularly for retirees and high-income earners. However, this may come with trade-offs, such as limited public services and infrastructure investments, which can affect quality of life in other ways.
+
+### Lower Housing Costs:
+Housing in Florida is generally less expensive than in New York, but the affordability gap has narrowed in recent years due to Florida’s rapidly increasing property values and rising costs in high-demand areas.
+
+### Retirement Lifestyle:
+Florida’s warm weather and recreational amenities are attractive to retirees. However, New York offers a rich cultural scene, proximity to world-class healthcare, and vibrant communities that are equally appealing for those seeking a fulfilling retirement.
+
+### Business and Economic Opportunities: 
+Florida markets itself as business-friendly, but New York remains an economic powerhouse with unparalleled access to diverse industries, global networks, and innovation hubs. The long-term career and business prospects in New York often surpass those available in Florida.
+
+## Implications for New York
+The migration of over 72,000 individuals to Florida alone has significant consequences for New York:
+
+### Population Decline:
+The annual exodus of residents from New York contributes significantly to population shrinkage, with particularly notable effects stemming from the migration of higher-income earners and retirees. These demographic shifts have wide-ranging implications for the state's economy, workforce, and public services.
+
+### Tax Revenue Loss:
+High-income individuals contribute a disproportionate share of state tax revenues through income taxes, property taxes, and spending. Their departure creates gaps in the budget, potentially leading to reduced funding for public services such as education and healthcare and increased tax burdens on middle- and lower-income residents to compensate for the shortfall.
+
+### Demographic Shifts: 
+Retirees leaving the state accelerate population aging among those who remain, as the younger population cannot offset the loss. This creates challenges such as increased demand for healthcare and elder care services for a higher proportion of aging residents and a shrinking labor force, as retirees no longer contribute actively to the workforce.Retirees tend to have fixed incomes from pensions and savings, which they often spend locally. Their departure results in reduced consumer spending in New York, affecting small businesses and the broader economy.
+
+### Competitiveness Concerns:
+Florida’s success in attracting New Yorkers underscores the pressing need for New York to address structural issues that contribute to its out-migration. High taxes, unaffordable housing, and concerns about quality of life have made New York less competitive, particularly compared to states like Florida that offer financial and lifestyle advantages. These challenges have broad implications for the state's economic health, workforce sustainability, and population growth.
+
+## Conclusion
+The migration data underscores the need for New York to reassess its economic policies and address the factors driving residents to relocate, particularly to Florida. While migration is influenced by a variety of personal and economic decisions, the state's ability to retain its population is critical for its long-term fiscal and social health. Florida's consistent pull highlights areas where New York could improve to remain competitive and appealing to its residents.
+
+
+# Heatmap of where New Yorkers moved to in the last 12 months
+
+## Top Migration Destinations
+New Yorkers are moving to a wide range of states across the U.S., with certain destinations standing out due to proximity, economic factors, and lifestyle appeal. The heat map clearly highlights Florida, New Jersey, and Pennsylvania as the most significant destinations.
+
+```{r, echo=FALSE}
+
+library(maps)
+
+# Define migration categories for the heatmap
+# Ensure Total_Migrants exists before using mutate
+migration_table <- migration_table %>%
+  mutate(
+    Migration_Category = cut(
+      `Total Migrants`,  # Use backticks if the column name contains spaces
+      breaks = c(0, 10000, 20000, 30000, 40000, 50000, Inf),  # Updated intervals
+      labels = c("<10k", "10k-20k", "20k-30k", "30k-40k", "40k-50k", ">50k"),
+      include.lowest = TRUE
+    )
+  )
+
+
+# Load US state boundaries data
+us_states <- map_data("state")
+
+# Merge migration data with state boundaries
+state_heatmap_data <- migration_table %>%
+  rename(region = StateName) %>%  # Correct column name
+  mutate(region = tolower(region)) %>%  # Convert to lowercase for consistency
+  right_join(us_states, by = "region")  # Ensure all states are displayed
+
+# Create the heatmap
+ggplot(state_heatmap_data, aes(x = long, y = lat, group = group, fill = Migration_Category)) +
+  geom_polygon(color = "black") +
+  scale_fill_manual(
+    values = c("#f7f7f7", "#dbdcff", "#bae1ff", "#baffc9", "#ffffba", "#ffb3ba"), # Warm color palette
+    name = "Number of Migrants"
+  ) +
+  coord_fixed(1.3) + # Center and properly scale the map
+  theme_void() +
+  theme(
+    legend.position = "left", # Move the legend to the left side
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 8),
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold", margin = margin(b = 10)), # Center the title and add spacing
+    axis.text = element_blank(), # Remove latitude and longitude labels
+    axis.title = element_blank(), # Remove axis titles
+    axis.ticks = element_blank(),
+    panel.grid = element_blank()
+  ) +
+  labs(
+    title = "Where New Yorkers Moved in the Last Year",
+    fill = "Number of Migrants"
+  )
+
+```
+
+
+### Florida:
+Florida leads as the top migration destination, with 72,424 individuals relocating there. Its warm climate, lack of a state income tax, and perceived affordability make it particularly appealing. Retirees and those seeking a financial reprieve from New York's high cost of living are driving this trend.
+
+### New Jersey:
+Ranking second, 56,098 New Yorkers moved to New Jersey. Its proximity to New York City allows individuals to maintain access to the metropolitan job market while enjoying more affordable housing and suburban lifestyles. Many commuters and families find New Jersey's balance of accessibility and cost-effectiveness attractive.
+
+### Pennsylvania:
+With 44,959 individuals, Pennsylvania is the third most popular destination. Its affordability, family-friendly communities, and accessibility to New York's metropolitan region contribute to its appeal. Compared to Florida, Pennsylvania offers a similar cost advantage without requiring a complete lifestyle change.
+
+### Other Notable Destinations
+California (34,595): Although geographically distant, California draws New Yorkers due to its diverse economy and lifestyle options. However, its higher housing costs may deter larger migration numbers.
+
+North Carolina (32,306) and Texas (30,194): Both states attract migrants with their lower taxes, job opportunities, and growing urban centers.
+
+Connecticut (27,404) and Massachusetts (16,846): These northeastern states provide proximity and familiar cultural environments while offering slightly lower costs compared to New York.
+
+### Where New Yorkers Are Not Moving
+The heat map reveals that certain states, particularly in the Midwest and the Mountain West, see minimal migration from New York. States like North Dakota, South Dakota, Wyoming, and Montana remain less attractive to New Yorkers due to their colder climates, lack of urban infrastructure, and smaller economies. Similarly, sparsely populated states like Alaska and Idaho draw little attention as migration destinations.
+
+## Conclusion
+While Florida dominates as a migration destination for New Yorkers, New Jersey and Pennsylvania serve as critical alternatives for those seeking proximity to New York City and affordability. The map and migration data highlight significant regional patterns, with warmer southern states and economically diverse areas attracting the majority of movers, while many rural or less urbanized states remain largely untouched by New York's out migration trends. This suggests that proximity, cost of living, and urban amenities remain primary factors influencing migration decisions.
+
+
+
+
+# Migration of New Yorkers 65 and Older: Florida as the Top Destination
+Florida leads as the primary destination for New Yorkers aged 65 and older, with 17,506 seniors relocating to the state in 2023. This far surpasses the numbers seen in other popular destinations like New Jersey (3,750), Connecticut (3,335), and Pennsylvania (2,966). Florida’s appeal among retirees stems from its warm climate, lack of a state income tax, and perceived affordability, all of which make it an attractive option for seniors seeking a different lifestyle.
+
+
+```{r, echo=FALSE}
+
+# Filter for individuals 65 and older who lived in New York a year ago but now live elsewhere
+ny_migration_seniors <- NATION_DATA %>%
+  filter(MIGSP == 36, STATE != 36, AGEP >= 65) %>%  # Filter for age 65+ and migration out of NY
+  select(StateName = State_Name, PWGTP, AGEP)       # Select relevant columns and rename State_Name to StateName
+
+# Summarize migration counts to each destination for seniors
+senior_migration_table <- ny_migration_seniors %>%
+  group_by(StateName) %>%
+  summarize(
+    `Total Migrants 65 and Older` = sum(PWGTP, na.rm = TRUE)  # Weighted total of migrants aged 65+
+  ) %>%
+  arrange(desc(`Total Migrants 65 and Older`))  # Sort by the number of migrants
+
+# Format and display the top 25 rows in a polished table
+senior_migration_table %>%
+  head(25) %>%  # Limit to top 25 rows
+  kbl(
+    caption = "Top 25 New Yorker 65+ Migration Destinations (2023)",
+    digits = 0,  # Remove decimal places for clarity
+    booktabs = TRUE  # Use professional formatting
+  ) %>%
+  kable_styling(
+    full_width = FALSE,  # Keep the table compact
+    latex_options = c("striped", "hold_position", "scale_down")  # Enhance styling for PDF
+  ) %>%
+  column_spec(1, bold = TRUE, width = "6cm") %>%  # Highlight StateName column and adjust its width
+  column_spec(2, width = "4cm")  # Adjust width for the Total Migrants column
+
+```
+
+However, while Florida might seem like the ultimate retirement destination, a closer look at what New York offers reveals that it remains a superior choice for seniors when considering practical needs and quality of life.
+
+# Why New York Remains a Better Destination for Seniors
+
+### Excellent Public Transit System:
+Unlike Florida, New York offers an extensive public transportation network that makes it easy for seniors to get around without driving. From buses to subways, New York's transit options provide affordable, reliable, and safe mobility, a critical advantage for older individuals who may not want to or be able to drive regularly.
+
+### Abundance of Medical Services:
+New York City is home to some of the best hospitals and healthcare facilities in the world. Seniors in New York have access to top-tier specialists, cutting-edge treatments, and programs tailored to geriatric care. In contrast, while Florida is known for catering to retirees, its healthcare system can be overburdened in certain areas due to the sheer volume of elderly residents.
+
+### Comprehensive Senior Programs:
+New York offers a variety of senior-focused programs, including recreational activities, community centers, affordable housing initiatives, and financial assistance for older adults. These resources ensure that seniors in New York can maintain an active, engaged, and independent lifestyle while receiving the support they need.
+
+### Milder, Less Harsh Weather:
+While Florida is often associated with warm weather, its climate can actually be more challenging for seniors. The high humidity, intense heat, and frequent hurricanes can pose health risks and create additional stress. In contrast, New York experiences a milder, more temperate climate, avoiding the extremes of Florida’s weather while still offering distinct and manageable seasons.
+
+# Florida's Drawbacks for Seniors
+While Florida's lifestyle may seem appealing, the realities of living there can create challenges:
+
+### Limited Public Transit: 
+Seniors often need to rely on driving or private transportation in Florida, which can become burdensome as they age. Unlike cities with robust public transportation systems, many areas in Florida lack accessible and comprehensive transit options, leaving older adults with limited mobility solutions. This dependency on driving can be particularly problematic for seniors who face declining vision, slower reaction times, or other health issues that make driving unsafe. Additionally, ride-sharing services and taxis may be costly and not always reliable in suburban or rural areas, further exacerbating transportation challenges for older adults.
+
+### Healthcare Strain:
+Florida's high concentration of retirees places a significant demand on the state's healthcare system, which can lead to long waits for medical services, particularly in rural and undeserved areas. As more seniors move to the state, the demand for specialists such as geriatricians, cardiologists, and orthopedic surgeons often exceeds the available supply, creating bottlenecks in care delivery. Additionally, healthcare facilities in some parts of Florida struggle with staffing shortages, further compounding access issues. For retirees requiring regular or specialized care, these challenges can result in delayed treatments and a diminished quality of healthcare compared to states with more balanced populations and well-resourced medical systems.
+
+## Extreme Weather: 
+Hurricanes, flooding, and oppressive summer heat make Florida less ideal than its reputation suggests, particularly for older adults. The state’s hurricane season, which lasts from June to November, brings frequent and often severe storms that can result in widespread power outages, property damage, and mandatory evacuations. For seniors, evacuating in the face of a hurricane can be physically taxing and logistically challenging, especially for those with mobility limitations or medical conditions requiring electricity-dependent equipment. Additionally, the heavy rainfall and flooding that accompany these storms can leave infrastructure, homes, and roads damaged for extended periods.
+
+## Conclusion
+While 17,506 seniors moved to Florida in 2023, the allure of warm weather and tax advantages may not outweigh the practical benefits of staying in New York. With its unparalleled public transit, world-class healthcare, abundant senior programs, and manageable weather, New York continues to provide a superior environment for individuals 65 and older. Florida may dominate migration numbers, but New York’s focus on infrastructure and quality of life makes it the better long-term destination for seniors.
+
+
+
+# Heat map of where former New Yorkers 65 an older moved in the last 12 months
+
+## Top Migration Destinations
+The heat map and data reveal that New Yorkers aged 65 and older are primarily moving to states along the East Coast and select southern destinations. Florida remains the most popular choice by a significant margin, but nearby states like New Jersey and Connecticut also see notable migration from seniors seeking proximity to their home state without entirely leaving the region.
+
+```{r, echo=FALSE, fig.width=10, fig.height=8}
+ggplot(state_heatmap_data, aes(x = long, y = lat, group = group, fill = Migration_Category)) +
+  geom_polygon(color = "black") +
+  scale_fill_manual(
+    values = c("#f7f7f7", "#dbdcff", "#bae1ff", "#baffc9", "#ffffba", "#ffb3ba"),
+    name = "Number of Migrants (65+)"
+  ) +
+  coord_fixed(1.3) +
+  theme_void() +
+  theme(
+    legend.position = "left",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 8),
+    plot.title = element_text(
+      hjust = 0, size = 16, face = "bold", margin = margin(b = 20, t = 20)
+    ),
+    plot.margin = margin(t = 50, r = 20, b = 10, l = 10)
+  ) +
+  labs(
+    title = "Where New Yorkers (65+) Moved in the Last Year",
+    fill = "Number of Migrants"
+  )
+
+```
+
+### Florida:
+With 17,506 seniors, Florida far outpaces all other states as a migration destination for New Yorkers aged 65 and older. Its warm climate, lack of a state income tax, and numerous retirement communities are major draws. However, the high concentration of seniors in Florida has led to some challenges, such as overburdened healthcare systems and exposure to extreme weather conditions like hurricanes and high humidity.
+
+### New Jersey:
+Ranking second, 3,750 seniors moved to New Jersey in 2023. Proximity is a key factor here; New Jersey allows retirees to remain close to family and familiar communities in New York while benefiting from more suburban living environments and slightly lower housing costs. Additionally, New Jersey’s access to New York City’s medical services and cultural resources remains a draw for older individuals.
+
+### Connecticut:
+With 3,335 seniors, Connecticut is the third most popular destination for older New Yorkers. Like New Jersey, Connecticut offers proximity to New York, but with smaller, quieter communities that appeal to retirees seeking a more tranquil lifestyle. Its access to high-quality healthcare and scenic living environments further adds to its appeal.
+
+## Migration Trends from the Heat Map
+The heat map clearly highlights that migration among older New Yorkers is concentrated in the eastern half of the United States. Key observations include:
+
+### Southern States: 
+States like Florida, South Carolina, and Georgia dominate as popular destinations for their climates and affordability.
+
+### Regional Moves: 
+States close to New York—New Jersey, Connecticut, and Pennsylvania—see significant migration, likely because they allow retirees to remain near family and familiar environments.
+
+### Low Movement to Western and Midwest States:
+States such as Wyoming, Montana, and the Dakotas see minimal migration, likely due to colder climates, lower population densities, and fewer services tailored to seniors.
+
+## Conclusion
+The migration patterns of New Yorkers 65 and older show a clear preference for nearby states like New Jersey and Connecticut, as well as southern states like Florida. While Florida leads the numbers by a wide margin, New Jersey and Connecticut highlight the importance of proximity to New York's cultural and medical resources for many retirees. This indicates that many older New Yorkers prioritize access to family, healthcare, and familiar surroundings when choosing their retirement destinations.
+
+
+# Introduction: Examining Household Income and Gross Rent
+In this section of the analysis, we delve into key economic indicators—household income and gross rent—to better understand the financial dynamics of New Yorkers compared to Floridians. Using the following variables from our data set, we will assess how income and housing costs intersect to influence quality of life:
+
+## Average Household Income
+Household income over the past 12 months, adjusted to constant dollars for accurate comparisons.
+
+## Average Household Rent:
+Gross rent, representing the monthly amount paid for housing, also adjusted to constant dollars.
+
+## Rent as Percentage of Household Income:
+Gross rent as a percentage of household income, offering a measure of housing affordability.
+
+
+# What Is a Household?
+According to the U.S. Census Bureau, a household consists of all the people who occupy a housing unit. This can include families, individuals living alone, or groups of unrelated individuals sharing living arrangements. A household is distinct from a family unit, as it can encompass individuals who are not related but who share expenses, resources, and housing.
+
+This analysis will primarily focus on comparing New York and Florida, two states that represent contrasting economic and lifestyle factors. New York, with its higher average incomes but elevated housing costs, will be juxtaposed with Florida, which offers lower average incomes and rents. By evaluating these variables, we aim to provide insight into the financial trade-offs for households in each state.
+
+For readers interested in broader trends, the full report also includes data on all 50 states and the District of Columbia, enabling a comprehensive view of household income and rent dynamics across the country.
+```{r, echo=FALSE}
+
+state_income_table <- PERSONAL_DATA %>%
+  select(STATE, HINCP, GRNTP, GRPIP) %>%  # Select relevant columns
+  group_by(STATE) %>%  # Group by state code
+  summarize(
+    `Average Household Income` = mean(HINCP, na.rm = TRUE),  # Renamed column for household income
+    `Average Household Rent` = mean(GRNTP, na.rm = TRUE),    # Renamed column for gross rent
+    `Rent as Percentage of Household Income` = mean(GRPIP, na.rm = TRUE)  # Renamed column for gross rent percentage
+  ) %>%
+  left_join(state_lookup, by = "STATE") %>%  # Join state names
+  select(StateName = State_Name, everything(), -STATE) %>%  # Rename State_Name to StateName and remove STATE column
+  arrange(StateName)  # Sort by state name
+
+# Create a nicely formatted table for PDF
+state_income_table %>%
+  kbl(caption = "State Income and Rent Data", digits = 2, booktabs = TRUE) %>%
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down"))
+
+```
+
+# Comparison Between New York and Florida
+Using the data from the table, we compare New York and Florida on three critical economic indicators: Average Household Income, Average Household Rent, and Rent as a Percentage of Household Income.
+
+## Average Household Income
+New York: $122,293.91
+
+Florida: $107,591.40
+
+New York's average household income is $14,702.51 higher than Florida’s. This significant income difference highlights the higher earning potential for households in New York, driven by its robust economy, access to high-paying jobs, and industries like finance, technology, and media.
+
+## Average Household Rent
+New York: $1,783.92
+
+Florida: $1,828.16
+
+Surprisingly, Florida’s average household rent is $44.24 higher than New York's. This challenges the perception that Florida is universally cheaper, especially as housing demand increases in Florida due to migration trends. Despite its higher incomes, New York shows a slightly lower rent average, which may reflect a wider range of housing options, including subsidized housing programs and rent control policies.
+
+## Rent as a Percentage of Household Income
+New York: 41.179%
+Florida: 43.928%
+
+In terms of rent burden, Florida households spend a greater share of their income on rent than those in New York. Rent as a percentage of household income is 2.75 percentage points higher in Florida, indicating that housing affordability challenges may be more pronounced for Floridian households, even with their lower average rent.
+
+# Summary of the Comparison
+
+## Higher Income in New York: 
+New Yorkers, on average, earn significantly more than Floridians, which provides them with greater financial flexibility to manage the state’s higher cost of living, including housing, taxes, and everyday expenses. This income advantage helps offset some of the financial pressures associated with living in New York, particularly for higher-income earners and professionals in industries like finance, technology, and healthcare. However, the disparity highlights a significant economic contrast, as many Floridians may find it challenging to compete in housing markets and other areas influenced by the influx of wealthier transplants from New York.
+
+## Unexpected Rent Trends: 
+Florida’s slightly higher average rent challenges its reputation as an affordable destination, driven by surging migration, population growth, and limited housing supply. Major urban areas like Miami and Tampa have seen significant rent increases, exacerbated by luxury developments and the rise of short-term rentals. Addressing these trends through affordable housing initiatives and regulatory measures is essential to sustain Florida’s appeal and balance growth with affordability.
+
+## Greater Rent Burden in Florida: 
+Floridians face a greater rent burden, as they allocate a higher percentage of their income to rent compared to New Yorkers, despite Florida’s perception as a more affordable state. This disparity stems from Florida’s lower average income levels combined with rising rental prices driven by high demand and limited housing supply. For many households, this creates financial stress, leaving less disposable income for other necessities like healthcare, education, and savings.
+
+# Conclusion
+The data illustrates that while Florida may be perceived as a more affordable state, the reality is more nuanced. New York provides higher earning opportunities and a slightly lower average rent, and households in New York face a comparatively smaller rent burden. These insights suggest that New York may offer better financial sustainability for households despite its reputation for high costs.
+
+
+
+# Comparison of New York and Florida:
+
+## Average Monthly Ownership Costs and Ownership Costs as Percentage of Income
+
+### Average Monthly Ownership Cost:
+This refers to the monthly housing costs for homeowners, including the following expenses:
+- Mortgage payments (principal and interest).
+- Property taxes.
+- Homeowner's insurance.
+- Utilities (electricity, gas, water, etc.).
+- Other related fees, such as condominium or homeowners’ association (HOA) fees.
+
+## Ownership Cost as a Percentage of Income:
+This measures housing affordability by calculating the share of household income spent on ownership costs. It is derived by dividing total monthly ownership costs by household income.
+
+For the purposes of this analysis, we will focus specifically on comparing New York and Florida to explore the financial dynamics of housing costs and affordability between these two states. This comparison highlights the distinct economic and lifestyle factors influencing home ownership in each location. However, the full report provides a comprehensive data set, including detailed insights for all 50 states and the District of Columbia. Readers interested in broader national trends or comparisons with other states can refer to the complete report for a full breakdown of ownership costs and affordability across the United States.
+
+```{r, echo=F}
+library(dplyr)
+library(kableExtra)
+
+# Prepare the data
+state_cost_table <- PERSONAL_DATA %>%
+  select(STATE, SMOCP, OCPIP) %>%  # Select relevant columns
+  group_by(STATE) %>%  # Group by state code
+  summarize(
+    `Average Monthly Ownership Cost` = mean(SMOCP, na.rm = TRUE),  # Calculate mean SMOCP
+    `Ownership Cost as % of Income` = mean(OCPIP, na.rm = TRUE)    # Calculate mean OCPIP
+  ) %>%
+  left_join(state_lookup, by = "STATE") %>%
+  select(StateName = State_Name, everything(), -STATE) %>%  # Rename State_Name to StateName and remove STATE column
+  arrange(StateName)  # Sort by state name
+
+# Generate the table in LaTeX format and output as-is
+latex_table <- paste0("
+\\begin{table}[H]
+\\centering
+\\caption{State Ownership Cost Data}
+", 
+kable(
+  state_cost_table,
+  format = "latex",
+  digits = 2,
+  booktabs = TRUE
+), "
+\\end{table}
+")
+
+knitr::asis_output(latex_table)
+
+```
+
+# Comparison: New York vs. Florida
+
+### Average Monthly Ownership Cost:
+New York: $1,953.85
+
+Florida: $1,617.83
+
+New York's average monthly ownership cost is $336.02 higher than Florida's. This reflects the higher property taxes and housing prices in New York, particularly in metropolitan areas like New York City, where real estate values are among the highest in the country. In Florida, lower property taxes and more affordable housing markets contribute to relatively lower ownership costs.
+
+### Ownership Cost as a Percentage of Income:
+New York: 25.53%
+
+Florida: 25.96%
+
+Surprisingly, the percentage of income spent on ownership costs is relatively close between the two states, with Florida being 0.43 percentage points higher. Despite Florida's lower ownership costs, its lower average household incomes mean that homeowners in Florida allocate a slightly larger portion of their income toward housing compared to New Yorkers.
+
+## Key Insights
+
+### Higher Absolute Costs in New York:
+New York’s higher average monthly ownership costs reflect not only elevated real estate values and associated property taxes but also the premium placed on living in a global economic and cultural hub. While higher average incomes in New York provide some relief by offsetting these costs, they are often accompanied by additional expenses such as higher utility bills, transportation costs, and insurance premiums. This combination of higher costs and incomes underscores the unique financial dynamics of living in New York, where residents pay a premium for access to unparalleled opportunities and amenities. However, for middle- and lower-income residents, these costs can still impose significant financial strain, highlighting the need for targeted affordability measures.
+
+### Florida's Rent Burden:
+Florida's slightly higher ownership cost as a percentage of income suggests that, despite lower monthly ownership costs, housing affordability remains a challenge for many Floridians due to their comparatively lower incomes. This indicates that Floridians spend a larger share of their earnings on homeownership expenses, leaving less financial flexibility for other necessities or savings. Rising property taxes and insurance costs, particularly in regions vulnerable to hurricanes, further exacerbate the financial strain on homeowners. Combined with increased housing demand and limited affordable options, this trend underscores the growing affordability crisis in Florida's housing market.
+
+## Conclusion
+While New York has higher monthly ownership costs, its stronger household incomes make these costs relatively manageable. In Florida, lower ownership costs are offset by lower incomes, leading to a comparable, if slightly higher, percentage of income being spent on housing. This highlights the importance of evaluating affordability not just in terms of absolute costs, but also in relation to income levels.
+
+
+
+
+# Why New York is the Ideal Retirement Destination for Seniors 65+
+While Florida has long been a popular destination for retirees, this analysis reveals that New York offers a compelling and perhaps unexpected case for being a more idyllic place for the 65+ population to settle. By examining data on migration patterns, housing costs, income levels, healthcare, and other quality-of-life factors, we find that New York provides significant advantages for retirees that are often overlooked.
+
+## Financial Viability
+New York stands out as a financially sustainable retirement destination for seniors:
+
+## Higher Average Household Income: 
+With an average household income of $122,293.91, New York far surpasses Florida’s $107,591.40, giving retirees greater financial flexibility to cover living expenses and unexpected costs. This income advantage can help retirees maintain a higher standard of living, including access to better healthcare and recreational opportunities. Moreover, the higher income levels in New York allow for more robust savings potential, providing retirees with a stronger financial safety net in case of emergencies or rising costs.
+
+## Comparable Housing Affordability: 
+Although New York’s average monthly ownership cost is higher ($1,953.85 vs. $1,617.83 in Florida), the share of income spent on ownership costs is nearly identical (25.53% in New York vs. 25.96% in Florida). This indicates that retirees in New York can afford housing at similar levels, despite the state's higher costs.
+
+## World-Class Medical Facilities: 
+New York is home to some of the nation’s best hospitals and specialists, offering seniors access to cutting-edge treatments and comprehensive geriatric care. With institutions like NewYork-Presbyterian, Mount Sinai, and Memorial Sloan Kettering, retirees benefit from top-tier medical expertise and specialized services tailored to aging populations. Additionally, the state’s extensive healthcare network ensures that even those in rural or suburban areas have access to high-quality care through telemedicine and regional medical centers. This level of accessibility and specialization makes New York an exceptional choice for retirees prioritizing their health and well-being.
+
+## Proximity to Care:
+Unlike Florida, where healthcare facilities in certain areas can be overburdened, New York’s dense infrastructure ensures that seniors have easy access to medical services without long waits or excessive travel. The state’s extensive public transit network also makes it easier for older adults to reach healthcare providers, even without a car. Additionally, New York boasts a higher concentration of specialized medical centers and top-tier hospitals, offering advanced care options for seniors with complex health needs.
+
+## Comprehensive Public Transit:
+New York’s robust public transportation system is a significant advantage for seniors who may no longer drive. Whether in New York City or smaller urban hubs, the availability of subways, buses, and rail systems provides seniors with affordable and convenient mobility.
+
+## Independence Without a Car:
+In contrast, Florida’s reliance on private vehicles can become burdensome for older adults, especially those with mobility challenges or declining health. Limited public transportation options in many parts of Florida mean seniors often need to rely on driving or costly ride services to access essential destinations like healthcare facilities, grocery stores, or social activities. This reliance can lead to increased isolation for those unable to drive and adds financial strain for retirees on fixed incomes who must budget for vehicle maintenance, insurance, or alternative transportation options.
+
+## Milder Weather:
+While Florida’s warm climate is often viewed as a draw, its extreme summer heat, high humidity, and hurricane season can pose significant health risks and disruptions. New York’s milder and more predictable weather offers a more stable environment, especially for those with respiratory or cardiovascular conditions.
+
+## Safety From Natural Disasters: 
+Hurricanes and flooding are constant threats in Florida, requiring seniors to contend with evacuations, property damage, and power outages. New York’s weather, though varied, poses far fewer extreme risks, offering a more stable environment for retirees. This lower risk of natural disasters in New York not only enhances physical safety but also reduces financial stress from high insurance premiums and costly repairs associated with climate-related events. For seniors seeking peace of mind and long-term stability, New York’s comparatively safer climate is a significant advantage.
+
+## Senior-Friendly Programs: 
+New York offers a wide array of programs and services for seniors, including recreational activities, financial assistance, and affordable housing initiatives. These resources foster a sense of community and help older adults maintain active and independent lives.
+
+## Cultural and Recreational Opportunities:
+From world-class museums and theaters to parks and community centers, New York offers a vibrant cultural and recreational scene that enhances quality of life for seniors. The state’s diverse array of activities ensures there is something for everyone, from serene outdoor experiences like hiking in the Adirondacks to enriching urban attractions such as Broadway shows and the Metropolitan Museum of Art. Additionally, many of these opportunities are easily accessible through robust public transportation networks, making them convenient for seniors to enjoy without the need to rely on driving.
+
+# Migration Trends Reveal the Full Picture
+While Florida is the leading migration destination for New Yorkers aged 65+ (17,506 seniors), it's notable that many older adults also choose to stay close to home, moving to neighboring states like New Jersey (3,750) and Connecticut (3,335). These trends suggest that proximity to family, familiarity, and access to resources remain critical factors for many retirees, making New York’s central location and robust infrastructure invaluable.
+
+# Conclusion
+New York may not have the sunny beaches of Florida, but it offers a higher quality of life for retirees in key areas that matter most: financial security, healthcare access, mobility, safety, and community support. While Florida’s appeal as a retirement destination is undeniable, the trade-offs in affordability, healthcare strain, extreme weather, and transportation challenges make it less ideal for many seniors. New York’s balance of opportunity, accessibility, and comprehensive services make it a superior choice for retirees seeking a stable, fulfilling, and comfortable lifestyle. For seniors looking to enjoy their golden years with access to world-class amenities and a vibrant community, New York proves to be the place to be.
+
