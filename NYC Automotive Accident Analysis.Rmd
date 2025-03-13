@@ -1,0 +1,266 @@
+---
+title: "NYC Automotive Accidents Analysis"
+author: "Michael Morello"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Analysis of NYC Motor Vehicle Collisions since 2012
+This analysis utilizes data from the NYC Motor Vehicle Collisions dataset, which contains detailed records of traffic accidents reported by the NYPD since 2012. The dataset provides a comprehensive view of the circumstances surrounding vehicle collisions, including information on location, contributing factors, and the severity of outcomes, such as injuries and fatalities. By examining these variables, this analysis aims to identify key trends and patterns in motor vehicle crashes across New York City, offering insights that can inform policy decisions aimed at enhancing road safety and reducing collision rates.
+
+```{r, include = F}
+
+rm(list = ls())
+gc()
+
+directory <- "/Users/Morello/Library/Mobile Documents/com~apple~CloudDocs/Past QC Semesters/Fall 2024/DATA 710 (Cohen)/Open Data Project/Motor Vehicle Accidents"
+
+setwd(directory)
+set.seed(123)
+
+data <- read.csv("Motor_Vehicle_Collisions_-_Crashes_20241015-2.csv")
+```
+```{r, include = F}
+library(ggplot2)
+library(leaflet)
+library(ggplot2)
+library(descr)
+library(dplyr)
+library(ggthemes)
+# Set a CRAN mirror
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+
+# Now install the required package
+install.packages("magrittr")
+install.packages('tinytex')
+
+
+```
+```{r, include = F}
+ # Vector for Month / Day
+ data$CRASH.DATE <- as.Date(data$CRASH.DATE, format="%m/%d/%Y")
+ MONTHDAY <- format(data$CRASH.DATE, "%m-%d")
+ 
+ # Vector for Month
+ MONTH <- format(data$CRASH.DATE, "%m")
+ 
+ # Vector for Year
+ YEAR <- format(data$CRASH.DATE, "%Y")
+```
+# Automobile Accidents Per Year in NYC
+
+This section introduces the analysis of the number of automobile accidents per year, as displayed in the bar graph. The data spans multiple years, providing a comprehensive overview of the trends in vehicle collisions across New York City. By examining the distribution of accidents over time, this graph helps us explore the broader patterns, such as fluctuations in accident rates that could be influenced by various factors like traffic volumes, policy changes, or external events. The following discussion will dive into these potential trends and their implications.
+
+```{r, echo  = FALSE}
+
+ggplot(data, aes(x = YEAR)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Automobile Accidents Per Year NYC", 
+       x = "", 
+       y = "") +
+  theme_minimal()
+
+```
+
+The graph shows a consistent number of automobile accidents from 2014 to 2019, with each year surpassing 200,000 incidents. However, a sharp decline is observed starting in 2020, coinciding with the COVID-19 pandemic. The pandemic likely reduced traffic due to lockdowns and decreased mobility. This reduction could also be attributed to a rise in remote work, which may have continued in subsequent years, leading to fewer cars on the road and, consequently, fewer automobile accidents compared to pre-pandemic years.
+
+
+# Automobile Accidents Per Month in NYC
+
+The first portion of the analysis focused on identifying whether automobile accidents in New York City exhibit any seasonal patterns by examining the frequency of accidents across different months. By comparing monthly data, this segment aimed to determine if specific times of the year see heightened accident rates. Understanding these trends can provide valuable insights into factors such as weather, traffic flow, or seasonal events that may influence the frequency of collisions, helping to inform targeted safety measures or public awareness campaigns during high-risk periods.
+
+```{r, include = F}
+
+#Scatterplot of crash freqency by month
+
+data <- data %>%
+  mutate(Month = as.numeric(format(CRASH.DATE, "%m")))  # Extract month as numeric
+
+# Now, count the frequency of each month
+month_count <- data %>%
+  group_by(Month) %>%
+  summarise(Frequency = n()) %>%
+  mutate(MonthName = factor(Month, levels = 1:12, labels = month.name))  # Convert month numbers to names
+
+# Create the scatterplot with all points the same size and no legends
+Per_Month_Scatter <- ggplot(month_count, aes(x = MonthName, y = Frequency, color = MonthName)) +
+  geom_point(size = 5, alpha = 0.8) +  # Fixed point size for all points
+  scale_color_manual(values = rainbow(12)) +  # Assign a unique color to each month
+  labs(title = "Automobile Accidents Per Month",
+       x = "Month",
+       y = "Number of Accidents") +  # Add labels for x and y axis
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels for readability
+        plot.title = element_text(hjust = 0.5)) +  # Center the plot title
+  guides(color = "none", size = "none")  # Remove both color and size legends
+```
+```{r, echo = F}
+Per_Month_Scatter
+```
+
+Upon examining the data, it became clear that automobile crashes were more prevalent between July and October. Several factors may contribute to this trend, including increased summer travel, when more people are on the road for vacations or seasonal activities. Additionally, warmer weather and longer daylight hours might encourage more driving. However, this period also coincides with holiday weekends and increased congestion, potentially leading to more accidents. Understanding these factors is critical for implementing targeted safety measures during these months.
+
+
+# Deaths from Automobile Accidents
+
+The next portion of the analysis examines the victims of automobile accident fatalities by focusing on their role as either cyclists, motorists, or pedestrians. By analyzing the data in these categories, this section aims to uncover trends in who is most vulnerable during collisions. Understanding the relationship between these groups and the fatalities that occur can help to identify where safety measures need to be strengthened to protect each group, particularly in areas with heavy vehicle and pedestrian traffic interaction.
+```{r, echo = F}
+fatalities_BarChart <- data.frame(
+  Category = c("Pedestrians", "Cyclists", "Motorists"),
+  Total = c(
+    sum(data$NUMBER.OF.PEDESTRIANS.KILLED, na.rm = TRUE),
+    sum(data$NUMBER.OF.CYCLIST.KILLED, na.rm = TRUE),
+    sum(data$NUMBER.OF.MOTORIST.KILLED, na.rm = TRUE)
+  )
+)
+
+# Create the bar plot using ggplot2
+ggplot(fatalities_BarChart, aes(x = Category, y = Total, fill = Category)) +
+  geom_bar(stat = "identity") +  # Create a bar chart
+  labs(title = "Total Fatalities by Category", 
+       x = "Categories of Victivms", 
+       y = "Total Number of Fatalities") +
+  theme_minimal() +
+  theme(legend.position = "none")  # Remove the legend, as colors are obvious from the labels
+
+```
+
+The graph illustrates the total number of fatalities in automobile accidents across three categories of victims: cyclists, motorists, and pedestrians. Pedestrians experienced the highest number of fatalities, with over 1,500 deaths, followed by motorists, who had around 1,200 fatalities. Cyclists had the lowest fatality count, with fewer than 500 deaths. These findings suggest that pedestrians are particularly vulnerable in traffic accidents, underscoring the need for enhanced safety measures for those walking in urban areas.
+
+
+# Automobile accidents by hour of day
+
+The upcoming analysis will focus on the distribution of automobile accidents by the hour, as shown in the graph. The data provides insight into when accidents are most frequent during the day, using military time. This information is valuable for understanding the times of day with heightened risk for collisions, potentially influenced by factors such as rush hour traffic, daily commuting patterns, and nighttime driving conditions. The analysis will explore these patterns to suggest ways to mitigate accident risks during peak hours.
+```{r, include = F}
+
+data <- data %>%
+  mutate(Hour = as.numeric(format(strptime(CRASH.TIME, format="%H:%M"), "%H")))  # Extract hour from time
+
+# Group by Hour and calculate the frequency of crashes per hour
+crash_frequency <- data %>%
+  group_by(Hour) %>%
+  summarise(Frequency = n())
+
+# Create the line graph using ggplot2
+Hourly_Accidents <- ggplot(crash_frequency, aes(x = Hour, y = Frequency)) +
+  geom_line(color = "steelblue", size = 1) +  # Add the line for frequency
+  geom_point(size = 2, color = "steelblue") +  # Add points to each hour for better visibility
+  scale_x_continuous(breaks = 0:23) +  # Set the x-axis to represent 24 hours
+  labs(title = "Automobile Accidents by the Hour (Military Time)", 
+       x = "Hour (Military Time)", 
+       y = "Number of Accident") +
+  theme_minimal()
+```
+
+```{r, echo = F}
+Hourly_Accidents
+```
+
+The chart illustrates a significant spike in automobile accidents during the morning and evening hours, particularly between 7-9 AM and 3-6 PM. These timeframes correspond to rush hours, when traffic density is highest due to commuting patterns. The early morning hours (midnight to 5 AM) show the lowest number of accidents, likely due to decreased road activity during this period. The steep increase in the late afternoon further highlights the correlation between peak travel times and accident rates, as more vehicles on the road lead to increased congestion and a higher likelihood of collisions.
+
+
+# Most Dangerous Parkways and Expressways in NYC
+
+This section of the analysis focuses on identifying the most dangerous roadways in New York City for automobile accidents. By examining data from key parkways and expressways, the analysis aims to reveal which roads have the highest incidence of collisions. This information is crucial for understanding traffic safety risks across the city's busiest thoroughfares and can help in prioritizing safety improvements on these routes. The findings will offer insights into patterns of accidents on these roadways and suggest areas where intervention may be most needed.
+```{r, include = F}
+
+# Remove rows with missing or empty values in ON.STREET.NAME
+cleaned_data <- data[!is.na(data$ON.STREET.NAME) & data$ON.STREET.NAME != "", ]
+
+# Create a frequency table of street names and sort it from most to least frequent
+street_name_frequencies <- sort(table(cleaned_data$ON.STREET.NAME), decreasing = TRUE)
+
+# Select the top 35 most frequent street names
+top_35_street_names <- street_name_frequencies[1:35]
+
+# Convert the top 35 frequency table into a data frame for ggplot2
+top_35_street_names_df <- as.data.frame(top_35_street_names)
+colnames(top_35_street_names_df) <- c("Street_Name", "Count")
+
+# Extract rows 3, 6, 7, 12, 17, 18, 22
+selected_rows <- top_35_street_names_df[c(3, 6, 7, 12, 17, 18, 22), ]
+
+# Create a bar plot using ggplot2, ordered from most to least frequent
+dangerousroads <- ggplot(selected_rows, aes(x = reorder(Street_Name, Count), y = Count)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() + # Flip coordinates to make the plot horizontal
+  labs(title = "Most Dangerous Parkways / Expressways", x = "", y = "Number of Autombile Accidents") +
+  theme_minimal()
+
+```
+
+```{r, echo = F}
+dangerousroads
+```
+
+The findings from the graph reveal that the Belt Parkway is the most dangerous roadway in New York City, with the highest number of automobile accidents, exceeding 10,000 incidents. The Long Island Expressway and Brooklyn Queens Expressway also rank high for collisions, indicating they are major areas of concern for traffic safety. These expressways, which are heavily trafficked by commuters, experience a significant amount of accidents compared to other roadways in the city. This data emphasizes the need for targeted interventions and safety improvements on these critical routes.
+
+
+# Top causes of automobile accidents in NYC
+
+This section of the analysis examines the leading causes of automobile accidents, as highlighted in the graph. The data focuses on common driver behaviors and actions that contribute to collisions, such as distractions, improper lane usage, and following too closely. By analyzing these contributing factors, this portion aims to understand which behaviors are most frequently associated with accidents. Identifying these causes is essential for designing targeted interventions to reduce accidents and improve road safety. The findings will provide insights into the most critical areas for traffic safety improvements.
+
+```{r, include = F}
+
+# Remove rows with missing or empty values in CONTRIBUTING.FACTOR.VEHICLE.1
+cleaned_factor_data <- data[!is.na(data$CONTRIBUTING.FACTOR.VEHICLE.1) & data$CONTRIBUTING.FACTOR.VEHICLE.1 != "", ]
+
+# Create a frequency table of contributing factors and sort it from most to least frequent
+factor_frequencies <- sort(table(cleaned_factor_data$CONTRIBUTING.FACTOR.VEHICLE.1), decreasing = TRUE)
+
+# Select the top 10 most frequent contributing factors
+top_10_factors <- factor_frequencies[2:11]
+
+# Convert the top 10 frequency table into a data frame for ggplot2
+top_10_factors_df <- as.data.frame(top_10_factors)
+colnames(top_10_factors_df) <- c("Contributing_Factor", "Count")
+
+# Create a bar plot using ggplot2, ordered from most to least frequent
+top10causes <- ggplot(top_10_factors_df, aes(x = reorder(Contributing_Factor, Count), y = Count)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() + # Flip coordinates to make the plot horizontal
+  scale_y_continuous(breaks = seq(0, max(top_10_factors_df$Count), by = 50000)) +  # Adjust y-axis (which was x before flipping) to show intervals of 500
+  labs(title = "Top Causes of Automobile Accidents", x = "", y = "Count") +
+  theme_minimal() +
+  theme(axis.title.x = element_text(margin = margin(t = 10)), # Adjust margin for x-axis label
+        axis.text.x = element_text(vjust = 0.5),              # Vertically adjust the x-axis text
+        axis.title.y = element_text(vjust = 0.5))             # Vertically adjust the y-axis label
+
+```
+
+```{r, echo = F}
+top10causes
+```
+
+The findings in this graph show that "Driver Inattention/Distraction" is the leading cause of automobile accidents, far surpassing other causes. A significant portion of this inattentiveness is likely due to the widespread use of cell phones while driving, which diverts drivers' attention from the road. Other common causes include "Failure to Yield Right-of-Way" and "Following Too Closely," both of which also contribute to a large number of accidents. These behaviors highlight key areas where driver education and enforcement of traffic laws could reduce accident rates.
+
+
+# Map of NYC's Automobile Accidents
+
+In this analysis, we employed a random sample of 1% of all recorded automobile accidents, due to the hardware limitations of R, as handling the full dataset—containing over 2,500,000 recorded accidents since 2012—was computationally prohibitive. Despite the reduced sample size, the map provided clear insights into accident distribution, showing that the majority of collisions occur on major NYC roadways. This random sampling approach still allows for meaningful observations while remaining manageable within the constraints of the software.
+```{r, echo = F}
+# Install the necessary packages if you haven't already
+install.packages("magrittr")
+install.packages("leaflet")
+
+# Load the required libraries
+library(magrittr)
+library(leaflet)
+location.data <- data.frame(
+  lon = data$LONGITUDE,  # Longitude values
+  lat = data$LATITUDE    # Latitude values
+)
+
+# Reduce data size for testing
+small.data <- location.data[1:21265, ]  # Adjust the number of points to plot
+
+leaflet(data = small.data) %>%
+  addTiles() %>%
+  addCircleMarkers(~lon, ~lat, radius = .0000005, color = "red", popup = ~paste("Lat:", lat, "Lon:", lon)) %>%
+  setView(lng = -74.0060, lat = 40.7128, zoom = 12)
+
+```
+
+# Conclusion
+
+In conclusion, due to New York City's high population density and significant automobile congestion, the city experiences a tremendous number of automobile accidents each year. Through this analysis, we've gained valuable insights into the causes of these accidents, from driver behavior to high-risk roadways. This information helps us better understand the factors contributing to collisions and allows us to take proactive steps to stay safer on the road. By applying these insights, we can be more aware and prepared the next time we drive in NYC.
