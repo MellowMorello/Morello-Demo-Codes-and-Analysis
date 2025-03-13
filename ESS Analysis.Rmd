@@ -1,0 +1,855 @@
+---
+title: "NY Shootings and Disadvantaged Areas"
+output:
+  html_document: default
+  pdf_document: default
+date: "2025-02-17"
+---
+
+# Neighborhood Disadvantage and Gun Violence in NYC: A 2023 Analysis
+
+
+## Introduction
+This study examines the relationship between neighborhood disadvantage scores and gun violence
+in New York City in 2023. With ongoing discussions about public safety and crime rates, this
+research provides a data-driven approach to understanding the link between socioeconomic
+conditions and shootings at the neighborhood level.
+Using shooting data from the New York Police Department (NYPD) and disadvantaged
+neighborhood classifications from the New York State Energy Research and Development Authority
+(NYSERDA), this study seeks to determine whether neighborhoods with higher disadvantage scores
+experience more gun violence. The findings reveal a strong correlation between these two factors,
+indicating that disadvantaged communities face disproportionately higher rates of shootings per
+100,000 people.
+
+
+```{r,include=FALSE}
+rm(list = ls())
+gc()
+
+options(repos = c(CRAN = "https://cloud.r-project.org/"))
+install.packages(c("sf", "ggplot2", "dplyr"))
+
+
+# Set working directory
+directory <- "C:/Users/mikem/iCloudDrive/NYC Shootings/NYC Shooting Project Data Sets"
+setwd(directory)
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Load required libraries
+if (!require("here")) install.packages("here", dependencies = TRUE)
+
+# Load datasets
+shootings <- read.csv("NYPD_Shooting_Data.csv", stringsAsFactors = FALSE)
+neighborhoods <- read.csv("2023_NY_Disadvantaged Neighborhoods.csv", stringsAsFactors = FALSE)
+census <- read.csv("NYC Census Tracts with Shootings.csv", stringsAsFactors = FALSE)
+cen_population <- read.csv("Cleaned_Census_Tract_Populations.csv", stringsAsFactors = FALSE)
+per100 <- read.csv("Shootings_Table_With_Population_Disadvantage.csv", stringsAsFactors = FALSE)
+install.packages(c("sf", "ggplot2", "dplyr"))
+```
+## Data Sources
+
+This analysis relies on two primary datasets:
+
+1. NYPD Shooting Incident Data (2023):
+  • Obtained from the New York Police Department (NYPD), this dataset provides
+detailed information on all recorded shootings in NYC from 2006 to 2023.
+  • Includes variables such as incident date/time, location (latitude/longitude), victim
+demographics (age, race, sex), and whether the shooting was fatal or non-fatal.
+  • This dataset enables the calculation of shooting rates per 100,000 residents at the
+neighborhood level by matching incidents to NYC census tracts.
+
+2. New York State Disadvantaged Communities Data (2023): Defines disadvantaged
+neighborhoods based on environmental burdens, climate risks, and socioeconomic
+vulnerabilities.
+  • Published by the New York State Energy Research and Development Authority
+(NYSERDA), this dataset identifies disadvantaged communities based on a
+combination of socioeconomic, environmental, and health-related factors.
+  • Neighborhoods are assigned a Disadvantaged Score ranging from 0 (least
+disadvantaged) to 1 (most disadvantaged), determined by indicators such as
+poverty rates, unemployment, median income, racial composition, housing burden,
+and environmental risks.
+  • This dataset allows for a quantitative measure of neighborhood-level disadvantage,
+which is used to assess its relationship with gun violence.
+
+
+By integrating these two datasets, this study evaluates whether higher levels of neighborhood
+disadvantage correlate with increased rates of gun violence.
+
+
+# Methodology
+
+1. Geo-Spatial Analysis: Mapping Shootings to Census Tracts
+  • Since both datasets use different geographic units (point-level data for shootings vs.
+census tract-level data for disadvantage), shootings were spatially matched to NYC
+census tracts using GIS tools and R’s sf package.
+  • The total number of shootings within each census tract was calculated, allowing for
+neighborhood-level comparison.
+
+# This map shows NYC most disadvantaged neighborhoods in 2023 along with their demographic makeup
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(sf)
+library(leaflet)
+library(dplyr)
+
+
+# Convert WKT geometry to sf object
+neighborhoods_sf <- st_as_sf(neighborhoods, wkt = "the_geom", crs = 4326)
+
+# Ensure geometries are valid
+neighborhoods_sf <- st_make_valid(neighborhoods_sf)
+
+# Filter for NYC bounding box (approximate boundaries)
+nyc_sf <- neighborhoods_sf %>%
+  st_filter(st_as_sfc(st_bbox(c(xmin = -74.2591, xmax = -73.7004, ymin = 40.4774, ymax = 40.9176), crs = 4326)))
+
+# Filter only areas that are "Designated as DAC"
+nyc_disadvantaged_sf <- nyc_sf %>%
+  filter(DAC_Designation == "Designated as DAC")
+
+# Check if there are valid rows left
+if (nrow(nyc_disadvantaged_sf) == 0) {
+  stop("No areas found with DAC_Designation == 'Designated as DAC'. Verify column values.")
+}
+
+# Create an interactive leaflet map highlighting DAC-designated areas
+leaflet(nyc_disadvantaged_sf) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(
+    fillColor = "lightblue",
+    color = "blue",
+    weight = 1,
+    opacity = 0.7,
+    fillOpacity = 0.6,
+    highlightOptions = highlightOptions(
+      color = "yellow", weight = 2, bringToFront = TRUE
+    ),
+    label = lapply(
+      paste0(
+        "<div style='font-size:14px; background-color:white; padding:5px; border-radius:5px; border:1px solid #ccc;'>",
+        "<b>GEOID:</b> ", nyc_disadvantaged_sf$GEOID, "<br>",
+        "<b>County:</b> ", nyc_disadvantaged_sf$County, "<br>",
+        "<b>Percentile Rank Combined NYC:</b> ", nyc_disadvantaged_sf$Percentile_Rank_Combined_NYC, "<br>",
+        "<b>Black/African American Percent:</b> ", nyc_disadvantaged_sf$Black_African_American_Percent, "%<br>",
+        "<b>Latino Percent:</b> ", nyc_disadvantaged_sf$Latino_Percent, "%",
+        "</div>"
+      ),
+      htmltools::HTML
+    ),
+    labelOptions = labelOptions(
+      direction = "auto",
+      textsize = "12px",
+      style = list(
+        "color" = "black",
+        "background-color" = "white",
+        "border" = "1px solid gray",
+        "padding" = "6px",
+        "border-radius" = "6px"
+      )
+    )
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    colors = "lightblue",
+    labels = "Most Disadvantaged Neighborhoods",
+    opacity = 1.0
+  ) %>%
+  setView(lng = -74.0060, lat = 40.7128, zoom = 11)
+
+```
+
+# This map shows all NYC shootings since 2006 along with statistical markers for each shooting
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(leaflet)
+library(dplyr)
+library(lubridate)  # For date handling
+
+# Inspect column names to confirm latitude/longitude fields
+print(names(shootings))
+
+# Create a data frame for coordinates with additional statistical markers
+location.data <- shootings %>%
+  filter(!is.na(Latitude) & !is.na(Longitude)) %>%  # Remove rows with missing coordinates
+  mutate(
+    Latitude = as.numeric(Latitude),
+    Longitude = as.numeric(Longitude),
+    OCCUR_DATE = mdy(OCCUR_DATE),  # Convert date format to readable format
+    STATISTICAL_MURDER_FLAG = ifelse(STATISTICAL_MURDER_FLAG, "Fatal", "Non-Fatal") # Convert to readable format
+  ) %>%     
+  select(Longitude, Latitude, OCCUR_DATE, OCCUR_TIME, PRECINCT, 
+         STATISTICAL_MURDER_FLAG, VIC_AGE_GROUP, VIC_SEX, VIC_RACE)
+
+# NYC Map with shooting data plotted
+leaflet(data = location.data) %>%
+  addProviderTiles("CartoDB.Positron") %>%  # Cleaner map style
+  addCircleMarkers(
+    ~Longitude, ~Latitude,
+    radius = 2,  # Adjust marker size for visibility
+    color = "red",
+    fillColor = "red",
+    fillOpacity = 0.2,
+    popup = ~paste0(
+      "<b>Date:</b> ", OCCUR_DATE, "<br>",
+      "<b>Time:</b> ", OCCUR_TIME, "<br>",
+      "<b>Precinct:</b> ", PRECINCT, "<br>",
+      "<b>Outcome:</b> ", STATISTICAL_MURDER_FLAG, "<br>",
+      "<b>Victim Age Group:</b> ", VIC_AGE_GROUP, "<br>",
+      "<b>Victim Sex:</b> ", VIC_SEX, "<br>",
+      "<b>Victim Race:</b> ", VIC_RACE)
+  ) %>%
+  setView(lng = -74.0060, lat = 40.7128, zoom = 12)
+
+
+```
+
+# Heatmap of the NYC Shooting Data since 2006 Showing areas of hightened gun violence
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(leaflet)
+library(leaflet.extras)  # Enables heatmap functionality
+library(dplyr)
+library(lubridate)  # For date handling
+
+# Process data: filter and format relevant columns
+location.data <- shootings %>%
+  filter(!is.na(Latitude) & !is.na(Longitude)) %>%  # Remove rows with missing coordinates
+  mutate(
+    Latitude = as.numeric(Latitude),
+    Longitude = as.numeric(Longitude),
+    OCCUR_DATE = mdy(OCCUR_DATE)  # Convert date format
+  ) %>%
+  select(Longitude, Latitude, OCCUR_DATE)
+
+# NYC Map with a red-intense heatmap layer
+leaflet(data = location.data) %>%
+  addProviderTiles("CartoDB.Positron") %>%  # Cleaner map style
+  addHeatmap(
+    lng = ~Longitude, lat = ~Latitude,
+    intensity = 7,  # Each point contributes equally to the heatmap
+    blur = 8,  # Decrease blur for sharper heat spots
+    max = 15,  # Increase max intensity for a stronger color contrast
+    radius = 25,  # Larger radius for more concentrated heat spots
+    gradient = c("transparent", "#ffd700", "#ffa500", "#990000")  # Gradient shades of red
+  ) %>%
+  setView(lng = -74.0060, lat = 40.7128, zoom = 12)
+
+```
+
+# This map shows all NYC shootings in 2023 along with statistical markers for each shooting
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(leaflet)
+library(dplyr)
+library(lubridate)  # For easier date handling
+
+# Inspect column names to confirm date and latitude/longitude fields
+print(names(shootings))
+
+# Convert OCCUR_DATE to Date format and filter for 2023
+location.data <- shootings %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>%  # Convert from MM/DD/YYYY to Date format
+  filter(year(OCCUR_DATE) == 2023 & !is.na(Latitude) & !is.na(Longitude)) %>%  
+  mutate(
+    Latitude = as.numeric(Latitude),
+    Longitude = as.numeric(Longitude),
+    STATISTICAL_MURDER_FLAG = ifelse(STATISTICAL_MURDER_FLAG, "Fatal", "Non-Fatal") # Convert to readable format
+  ) %>%     
+  select(Longitude, Latitude, OCCUR_DATE, OCCUR_TIME, PRECINCT, STATISTICAL_MURDER_FLAG, VIC_AGE_GROUP, VIC_SEX, VIC_RACE)
+
+# NYC Map with shooting data plotted
+leaflet(data = location.data) %>%
+  addProviderTiles("CartoDB.Positron") %>%  # Cleaner map style
+  addCircleMarkers(
+    ~Longitude, ~Latitude,
+    radius = 4,  # Adjust marker size for better visibility
+    color = "red",
+    fillColor = "red",
+    fillOpacity = 0.5,
+    popup = ~paste(
+      "<b>Date:</b>", OCCUR_DATE, "<br>",
+      "<b>Time:</b>", OCCUR_TIME, "<br>",
+      "<b>Precinct:</b>", PRECINCT, "<br>",
+      "<b>Outcome:</b>", STATISTICAL_MURDER_FLAG, "<br>",
+      "<b>Victim Age Group:</b>", VIC_AGE_GROUP, "<br>",
+      "<b>Victim Sex:</b>", VIC_SEX, "<br>",
+      "<b>Victim Race:</b>", VIC_RACE, "<br>"
+    )
+  ) %>%
+  setView(lng = -74.0060, lat = 40.7128, zoom = 12)
+
+
+```
+
+# This map displays both shootings and most Disadvantaged Neighborhoods in 2023
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(sf)
+library(leaflet)
+library(dplyr)
+library(lubridate)  # For date handling
+
+# --- Process Shooting Data ---
+# Convert OCCUR_DATE to Date format and filter for 2023 shootings
+shooting_data <- shootings %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>%  # Convert from MM/DD/YYYY to Date format
+  filter(year(OCCUR_DATE) == 2023 & !is.na(Latitude) & !is.na(Longitude)) %>%  
+  mutate(
+    Latitude = as.numeric(Latitude),
+    Longitude = as.numeric(Longitude),
+    STATISTICAL_MURDER_FLAG = ifelse(STATISTICAL_MURDER_FLAG, "Fatal", "Non-Fatal") # Convert to readable format
+  ) %>%     
+  select(Longitude, Latitude, OCCUR_DATE, OCCUR_TIME, PRECINCT, 
+         STATISTICAL_MURDER_FLAG, VIC_AGE_GROUP, VIC_SEX, VIC_RACE)
+
+# --- Process DAC Data ---
+# Convert WKT geometry to sf object
+neighborhoods_sf <- st_as_sf(neighborhoods, wkt = "the_geom", crs = 4326)
+
+# Ensure geometries are valid
+neighborhoods_sf <- st_make_valid(neighborhoods_sf)
+
+# Filter for NYC bounding box
+nyc_sf <- neighborhoods_sf %>%
+  st_filter(st_as_sfc(st_bbox(c(xmin = -74.2591, xmax = -73.7004, ymin = 40.4774, ymax = 40.9176), crs = 4326)))
+
+# Filter only areas that are "Designated as DAC"
+nyc_disadvantaged_sf <- nyc_sf %>%
+  filter(DAC_Designation == "Designated as DAC")
+
+# Check if there are valid rows left
+if (nrow(nyc_disadvantaged_sf) == 0) {
+  stop("No areas found with DAC_Designation == 'Designated as DAC'. Verify column values.")
+}
+
+# --- Combine Maps ---
+leaflet() %>%
+  # Add base map
+  addProviderTiles("CartoDB.Positron") %>%
+
+  # Add DAC-designated neighborhoods as polygons
+  addPolygons(data = nyc_disadvantaged_sf,
+    fillColor = "lightblue",
+    color = "blue",
+    weight = 1,
+    opacity = 0.7,
+    fillOpacity = 0.6,
+    group = "Disadvantaged Neighborhoods",
+    highlightOptions = highlightOptions(
+      color = "yellow", weight = 2, bringToFront = TRUE
+    ),
+    label = ~paste("DAC Status:", DAC_Designation)
+  ) %>%
+
+  # Add shooting incidents as red circle markers with detailed popups
+  addCircleMarkers(data = shooting_data,
+    ~Longitude, ~Latitude,
+    radius = 2,  # Adjust marker size for visibility
+    color = "red",
+    fillColor = "red",
+    fillOpacity = 0.1,
+    group = "Shooting Incidents",
+    popup = ~paste0(
+      "<b>Date:</b> ", OCCUR_DATE, "<br>",
+      "<b>Time:</b> ", OCCUR_TIME, "<br>",
+      "<b>Precinct:</b> ", PRECINCT, "<br>",
+      "<b>Outcome:</b> ", STATISTICAL_MURDER_FLAG, "<br>",
+      "<b>Victim Age Group:</b> ", VIC_AGE_GROUP, "<br>",
+      "<b>Victim Sex:</b> ", VIC_SEX, "<br>",  # Missing comma added
+      "<b>Victim Race:</b> ", VIC_RACE  # This was missing, added back
+    )
+  ) %>%
+
+  # Add layer control to toggle between datasets
+  addLayersControl(
+    overlayGroups = c("Disadvantaged Neighborhoods", "Shooting Incidents"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+
+  # Add legends for clarity
+  addLegend(
+    position = "bottomleft",
+    colors = c("lightblue", "red"),
+    labels = c("Disadvantaged Neighborhoods", "Shooting Incidents"),
+    opacity = 1.0
+  ) %>%
+
+  # Center the map on NYC
+  setView(lng = -74.0060, lat = 40.7128, zoom = 12)
+
+```
+
+
+
+# This Table displays the top 15 Cenus Tracts with the highest disadvantage score in NYC 2023
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+# Define NYC boroughs
+nyc_boroughs <- c("Bronx", "Manhattan", "Queens", "Brooklyn", "Staten Island")
+
+# Filter for NYC neighborhoods
+nyc_data <- neighborhoods %>%
+  filter(County %in% nyc_boroughs)
+
+# Select relevant columns
+relevant_columns <- c("GEOID", "County", "Percentile_Rank_Combined_NYC")
+
+# Get the top 15 census tracts with the highest disadvantaged scores
+top_15_disadvantaged <- nyc_data %>%
+  select(all_of(relevant_columns)) %>%
+  arrange(desc(Percentile_Rank_Combined_NYC)) %>%
+  head(15)
+
+# Display the table with formatting
+top_15_disadvantaged %>%
+  mutate(GEOID = paste0("**", GEOID, "**")) %>%  # Make GEOID bold
+  kable("html", caption = "<span style='font-weight: bold; color: black;'>Top 15 Most Disadvantaged Census Tracts in NYC</span>") %>%
+  kable_styling("striped", full_width = F, position = "center") %>%
+  column_spec(1, bold = TRUE) %>%
+  column_spec(3, color = "red", bold = TRUE)  # Highlight disadvantaged scores in red
+
+```
+
+
+# ==========================================
+## Understanding `Percentile_Rank_Combined_NYC`
+
+### **What Does This Score Represent?**
+The `Percentile_Rank_Combined_NYC` variable represents the **relative disadvantaged ranking of a census tract within New York City (NYC)**. 
+
+- **Range: 0 to 1** (or 0% to 100%)
+- **Higher values** (closer to **1.00**) indicate that the neighborhood is **more disadvantaged** relative to other NYC census tracts.
+- **Lower values** (closer to **0.00**) indicate that the neighborhood is **less disadvantaged** compared to other NYC areas.
+
+---
+
+### **How Is It Calculated?**
+NYC assigns this percentile rank based on a **composite index** that combines **two major factors**:
+
+1. **Environmental Burden Score**:
+   - Measures **pollution exposure** (e.g., air quality, hazardous waste sites, toxic releases).
+   - Includes **climate risks** (e.g., flood vulnerability, extreme heat).
+   
+2. **Population Vulnerability Score**:
+   - Includes **socioeconomic factors** (e.g., poverty rate, education levels, housing burden).
+   - Considers **health risks** (e.g., asthma rates, access to healthcare).
+
+Each census tract is **ranked based on these combined scores**, and the **percentile rank is assigned accordingly**.
+
+---
+
+### **Interpretation of the Score**
+The table below explains how to interpret the percentile rank:
+
+| `Percentile_Rank_Combined_NYC` | **Interpretation** |
+|-----------------------------|----------------------|
+| **1.00 (100%)** | **Most Disadvantaged** Neighborhood in NYC |
+| **0.90 (90%)** | Among **Top 10%** Most Disadvantaged Areas |
+| **0.50 (50%)** | **Median** Level of Disadvantagedness |
+| **0.10 (10%)** | Among **Least Disadvantaged** Areas |
+| **0.00 (0%)**  | **Least Disadvantaged** Neighborhood in NYC |
+
+For example:
+- A neighborhood with a **percentile rank of 0.98** means that it is **more disadvantaged than 98% of all census tracts in NYC**.
+- A neighborhood with a **percentile rank of 0.25** means that it is **less disadvantaged than 75% of census tracts**.
+
+---
+
+### **Why is This Score Important?**
+- Helps **identify neighborhoods that need the most resources** (e.g., funding, clean energy initiatives, public health interventions).
+- Used to **prioritize disadvantaged communities** for **government programs and policy planning**.
+- Supports **environmental justice** efforts by addressing communities with **high pollution and socioeconomic struggles**.
+
+---
+
+### **Example Interpretation**
+
+Consider two neighborhoods:
+A **Bronx census tract** with:
+- **GEOID: 36005009300**
+- **Percentile_Rank_Combined_NYC: 1.00 (100%)**  
+👉 This means **it is the most disadvantaged neighborhood in all of NYC**.
+
+A **Manhattan census tract** with:
+- **GEOID: 36061000100**
+- **Percentile_Rank_Combined_NYC: 0.15 (15%)**  
+👉 This means **it is among the least disadvantaged neighborhoods in NYC**.
+
+---
+
+### **Key Takeaways**
+✔ The **higher the percentile rank**, the **more disadvantaged** the neighborhood.  
+✔ The score is **relative to NYC**, so it **compares neighborhoods only within the city**.  
+✔ Used by **policymakers and researchers** to **target resources where they are needed most**.
+
+
+
+
+
+# This Table displays the top 15 Most Disadvantaged Census Tracts in NYC (2023) with Shooting Counts
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(dplyr)
+library(sf)
+library(lubridate)
+library(knitr)
+install.packages("kableExtra")
+library(kableExtra)
+
+# Define NYC boroughs
+nyc_boroughs <- c("Bronx", "Manhattan", "Queens", "Brooklyn", "Staten Island")
+
+# Ensure OCCUR_DATE is in Date format and filter for 2023 shootings
+shootings_2023 <- shootings %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>%  # Convert to Date format
+  filter(year(OCCUR_DATE) == 2023 & !is.na(Latitude) & !is.na(Longitude))
+
+# Convert shootings data to spatial points using sf package
+shootings_sf <- st_as_sf(shootings_2023, coords = c("Longitude", "Latitude"), crs = 4326)
+
+# Convert neighborhoods dataset to sf object
+neighborhoods_sf <- st_as_sf(neighborhoods, wkt = "the_geom", crs = 4326) %>%
+  filter(County %in% nyc_boroughs)
+
+# Perform spatial join to assign each shooting to a census tract
+shootings_with_tracts <- st_join(shootings_sf, neighborhoods_sf, left = FALSE) %>%
+  st_drop_geometry()  # Remove geometry column
+
+# Group shootings by census tract
+shootings_count <- shootings_with_tracts %>%
+  group_by(GEOID) %>%
+  summarise(Shooting_Count = n())
+
+# Filter for NYC neighborhoods
+nyc_data <- neighborhoods %>%
+  filter(County %in% nyc_boroughs)
+
+# Select relevant columns and join with shooting counts
+relevant_columns <- c("GEOID", "County", "Percentile_Rank_Combined_NYC")
+
+top_15_disadvantaged <- nyc_data %>%
+  select(all_of(relevant_columns)) %>%
+  left_join(shootings_count, by = "GEOID") %>%
+  mutate(Shooting_Count = ifelse(is.na(Shooting_Count), 0, Shooting_Count)) %>%
+  arrange(desc(Percentile_Rank_Combined_NYC)) %>%
+  head(15)
+
+# Display the table with formatting
+top_15_disadvantaged %>%
+  mutate(GEOID = paste0("**", GEOID, "**")) %>%  # Make GEOID bold
+  kable("html", caption = "<span style='font-weight: bold; color: black;'>Top 15 Most Disadvantaged Census Tracts in NYC (with Shooting Counts)</span>") %>%
+  kable_styling("striped", full_width = F, position = "center") %>%
+  column_spec(1, bold = TRUE) %>%
+  column_spec(3, color = "red", bold = TRUE) %>%  # Highlight disadvantaged scores in red
+  column_spec(4, color = "blue", bold = TRUE)  # Highlight shooting counts in blue
+
+```
+
+# This Table Displays All NYC Census Tracts in NYC during 2023 that had atleast 1 intcident of gun violence
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(dplyr)
+library(sf)
+library(lubridate)
+library(knitr)
+library(kableExtra)
+
+# Ensure OCCUR_DATE is in Date format and filter for 2023 shootings
+shootings_2023 <- shootings %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>%  # Convert to Date format
+  filter(year(OCCUR_DATE) == 2023 & !is.na(Latitude) & !is.na(Longitude))
+
+# Convert shootings data to spatial points using sf package
+shootings_sf <- st_as_sf(shootings_2023, coords = c("Longitude", "Latitude"), crs = 4326)
+
+# Convert neighborhoods dataset to sf object
+neighborhoods_sf <- st_as_sf(neighborhoods, wkt = "the_geom", crs = 4326)
+
+# Perform spatial join to assign each shooting to a census tract
+shootings_with_tracts <- st_join(shootings_sf, neighborhoods_sf, left = FALSE) %>%
+  st_drop_geometry()  # Remove geometry column
+
+# Group shootings by census tract
+shootings_by_tract <- shootings_with_tracts %>%
+  group_by(GEOID, County) %>%
+  summarise(
+    Shooting_Count = n(),  # Count number of shootings per tract
+    Disadvantaged_Score = first(Percentile_Rank_Combined_NYC)  # Get disadvantaged score
+  ) %>%
+  arrange(desc(Shooting_Count))  # Sort by most shootings
+
+# Select only the top 15 census tracts with the most shootings
+top_15_shootings <- shootings_by_tract %>%
+  top_n(15, Shooting_Count)
+
+# Display the table with the top 15 census tracts
+top_15_shootings %>%
+  knitr::kable("html", caption = "<span style='font-weight: bold; color: black;'>Census Tracts with at least 1 Instance of Gun Violence (2023)</span>") %>%
+  kableExtra::kable_styling("striped", full_width = F, position = "center") %>%
+  kableExtra::column_spec(3, color = "red", bold = TRUE)
+
+```
+
+# This Table displays Census Tracts with 0 Shootings in NYC during 2023
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+# Define NYC boroughs
+nyc_boroughs <- c("Bronx", "Manhattan", "Queens", "Brooklyn", "Staten Island")
+
+# Filter for NYC neighborhoods
+nyc_data <- neighborhoods %>%
+  filter(County %in% nyc_boroughs)
+
+# Select relevant columns
+relevant_columns <- c("GEOID", "County", "Percentile_Rank_Combined_NYC")
+
+# Get the top 15 census tracts with the lowest disadvantaged scores
+lowest_15_disadvantaged <- nyc_data %>%
+  select(all_of(relevant_columns)) %>%
+  arrange(Percentile_Rank_Combined_NYC) %>%  # Arrange in ascending order for lowest scores
+  head(15)
+
+# Display the table with formatting
+lowest_15_disadvantaged %>%
+  mutate(GEOID = paste0("**", GEOID, "**")) %>%  # Make GEOID bold
+  kable("html", caption = "<span style='font-weight: bold; color: black;'>Top 15 Least Disadvantaged Census Tracts in NYC</span>") %>%
+  kable_styling("striped", full_width = F, position = "center") %>%
+  column_spec(1, bold = TRUE) %>%
+  column_spec(3, color = "green", bold = TRUE)  # Highlight lowest scores in green
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+# Load necessary libraries
+library(dplyr)
+library(sf)
+library(lubridate)
+library(tidyr)
+library(knitr)
+library(kableExtra)
+
+# Ensure OCCUR_DATE is in Date format and filter for 2023 shootings
+shootings_2023 <- shootings %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>%
+  filter(year(OCCUR_DATE) == 2023 & !is.na(Latitude) & !is.na(Longitude))
+
+# Convert shootings data to spatial points using sf package
+shootings_sf <- st_as_sf(shootings_2023, coords = c("Longitude", "Latitude"), crs = 4326)
+
+# Convert neighborhoods dataset to sf object
+neighborhoods_sf <- st_as_sf(neighborhoods, wkt = "the_geom", crs = 4326)
+
+# Filter neighborhoods to only include those in NYC (using corrected county names)
+nyc_neighborhoods_sf <- neighborhoods_sf %>%
+  filter(County %in% c("Queens", "Brooklyn", "Bronx", "Richmond", "New York"))  # Richmond = Staten Island, New York = Manhattan
+
+# Perform spatial join to assign each shooting to a census tract
+shootings_with_tracts <- st_join(shootings_sf, nyc_neighborhoods_sf, left = FALSE) %>%
+  st_drop_geometry()  # Remove geometry column
+
+# Group shootings by census tract
+shootings_by_tract <- shootings_with_tracts %>%
+  group_by(GEOID) %>%
+  summarise(
+    Shooting_Count = n()  # Count number of shootings per tract
+  )
+
+# Get all census tracts, county data, and disadvantaged scores from neighborhoods dataset
+all_tracts <- nyc_neighborhoods_sf %>%
+  st_drop_geometry() %>%
+  select(GEOID, County, Percentile_Rank_Combined_NYC)
+
+# Identify tracts with zero shootings and include county and disadvantaged score
+tracts_zero_shootings <- all_tracts %>%
+  left_join(shootings_by_tract, by = "GEOID") %>%
+  replace_na(list(Shooting_Count = 0)) %>%
+  filter(Shooting_Count == 0)
+
+# Export the table to a CSV file
+write.csv(tracts_zero_shootings, "Census_Tracts_Zero_Shootings_2023_NYC.csv", row.names = FALSE)
+
+# Display the table with census tracts that had zero shootings, including county and disadvantaged scores
+tracts_zero_shootings %>%
+  knitr::kable("html", caption = "<span style='font-weight: bold; color: black;'>Census Tracts with Zero Shootings in NYC (2023)</span>") %>%
+  kableExtra::kable_styling("striped", full_width = F, position = "center")
+
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+
+library(dplyr)
+# Ensure GEOID is treated as a character for merging
+neighborhoods$GEOID <- as.character(neighborhoods$GEOID)
+census$GEOID <- as.character(census$GEOID)
+
+# Merge population and disadvantage score data with the census data
+census_with_details <- left_join(
+  census, 
+  neighborhoods %>% select(GEOID, Population_Count, Percentile_Rank_Combined_NYC), 
+  by = "GEOID"
+)
+
+# Check if "Disadvantaged_Score" already exists, and remove duplicate before renaming
+if ("Disadvantaged_Score" %in% colnames(census_with_details)) {
+  census_with_details <- census_with_details %>% select(-Disadvantaged_Score)
+}
+
+# Rename columns for clarity
+census_with_details <- census_with_details %>%
+  rename(
+    Population = Population_Count,
+    Disadvantaged_Score = Percentile_Rank_Combined_NYC
+  )
+
+# Add a new column: Shootings per 100,000 persons
+census_with_details <- census_with_details %>%
+  mutate(Shootings_per_100k = ifelse(!is.na(Population) & Population > 0, 
+                                     (Shooting_Count / Population) * 100000, 
+                                     NA))  # Avoid division by zero
+
+# Create the final table with selected columns
+shootings_table <- census_with_details %>%
+  select(GEOID, County, Population, Shooting_Count, Disadvantaged_Score, Shootings_per_100k) %>%
+  arrange(GEOID)  # Sort by GEOID
+
+# Display the table in R
+print(shootings_table)
+
+# Save the table as a CSV file
+write.csv(shootings_table, "Shootings_Table_With_Population_Disadvantage.csv", row.names = FALSE)
+
+
+```
+
+# Scatterplot of Disadvantaged Score vs. Shootings per 100,000
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+
+# Remove rows with missing values
+per100 <- per100[complete.cases(per100$Disadvantaged_Score, per100$Shootings_per_100k), ]
+
+# Define outlier threshold (95th percentile)
+outlier_threshold <- quantile(per100$Shootings_per_100k, 0.95, na.rm = TRUE)
+
+# OPTIONAL: Remove extreme outliers (top 1% of shooting values)
+per100_filtered <- per100[per100$Shootings_per_100k <= outlier_threshold, ]
+
+# Create scatter plot with LINEAR regression and adjusted y-axis
+ggplot(per100_filtered, aes(x = Disadvantaged_Score, y = Shootings_per_100k)) +
+  geom_point(alpha = 0.4, color = "blue", size = 1.5) +  # Reduce opacity to reduce clutter
+  geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 1.2) +  # Linear regression for clear positive trend
+  labs(
+    title = "Disadvantage Score vs. Shootings per 100k",
+    x = "Disadvantaged Score",
+    y = "Shootings per 100,000"
+  ) +
+  scale_x_continuous(breaks = seq(0, 1, by = 0.1), limits = c(0, 1)) +  # Ensure full range on x-axis
+  coord_cartesian(ylim = c(0, outlier_threshold)) +  # Lower y-axis and remove extreme outliers from view
+  theme_minimal()
+
+
+```
+# Scatterplot Explination
+Each blue dot represents a geographic area (GEOID).
+The X-axis (Disadvantaged Score) → How disadvantaged an area is (higher = more disadvantaged).
+The Y-axis (Shootings per 100,000 people) → The number of shootings in that area, adjusted for population size.
+The Red Line (Trend Line) → Shows the overall pattern
+
+# Scatterplot Analysis
+As the Disadvantaged Score increases, the number of shootings per 100,000 people also increases.
+This positive correlation suggests that more disadvantaged areas tend to have higher rates of gun violence.
+
+# Scatterplot Conclusion
+Key Takeaway
+The scatter plot supports the idea that neighborhoods with higher social disadvantage experience more shootings per 100,000 people.
+While there is some variation, the upward trend (red line) indicates that disadvantage is linked to higher gun violence.
+
+
+# Regression Analysis Table
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Load necessary libraries
+library(ggplot2)
+library(broom)  # For tidy regression results
+library(dplyr)  # For table formatting
+library(knitr)  # For kable table formatting
+library(kableExtra)  # For enhanced table styling
+
+# Read the data
+per100 <- read.csv("Shootings_Table_With_Population_Disadvantage.csv", stringsAsFactors = FALSE)
+
+# Remove missing values
+per100 <- per100[complete.cases(per100$Disadvantaged_Score, per100$Shootings_per_100k), ]
+
+# Define outlier threshold (95th percentile) to match scatterplot adjustments
+outlier_threshold <- quantile(per100$Shootings_per_100k, 0.95, na.rm = TRUE)
+
+# Filter data to remove extreme outliers
+per100_filtered <- per100 %>% filter(Shootings_per_100k <= outlier_threshold)
+
+# Run linear regression
+model <- lm(Shootings_per_100k ~ Disadvantaged_Score, data = per100_filtered)
+
+# Create a formatted regression table
+regression_table <- broom::tidy(model) %>%
+  select(term, estimate, std.error, statistic, p.value) %>%
+  rename(
+    Variable = term,
+    Estimate = estimate,
+    "Std. Error" = std.error,
+    "T-Statistic" = statistic,
+    "P-Value" = p.value
+  )
+
+# Format the table neatly using kableExtra
+regression_table %>%
+  kable("html", caption = "Regression Results: Disadvantaged Score vs. Shootings per 100k") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  column_spec(2:5, width = "3cm") %>%  # Adjust column width
+  row_spec(0, bold = TRUE)  # Make header bold
+
+```
+
+
+# ==========================================
+# Interpretation of Regression Results
+# ==========================================
+
+#Relationship Between Disadvantaged Score & Shootings per 100k
+
+#Since Disadvantaged Score is a percentage (0 to 1), we interpret the coefficient in percentage point changes.
+Each 1% increase in Disadvantaged Score (0.01 increase) is associated with an increase of ~0.30 shootings per 100,000 people.
+A 10 percentage point increase (e.g., from 20% to 30%) is linked to ~3 additional shootings per 100,000 people.
+A 50 percentage point increase (e.g., from 20% to 70%) is linked to ~15 additional shootings per 100,000 people.
+#Conclusion: There is a strong positive correlation between neighborhood disadvantage and gun violence.
+
+# Statistical Significance (T-Statistic & P-Value)
+
+#The T-Statistic (17.32) is very high, indicating that the effect of Disadvantaged Score on Shootings per 100k is strong and unlikely to be random.
+The P-Value (0.000) confirms that this relationship is highly statistically significant—meaning the chance that this effect is due to randomness is virtually zero.
+#Conclusion: The data strongly supports the idea that higher disadvantage leads to higher rates of shootings per 100,000 people.
+
+#Interpreting the Intercept (-2.30)
+
+#The intercept represents the expected number of shootings per 100,000 when Disadvantaged Score = 0 (i.e., in the least disadvantaged areas).
+Since the intercept is negative (-2.30 shootings per 100k), it is not meaningful in a real-world context—shootings cannot be negative.
+This happens because the regression line is trying to fit the data, but very few areas have a Disadvantaged Score of exactly 0, making the intercept less relevant.
+
+
+#Conclusion: We should focus on the slope (30.43 per full unit or ~0.30 per 1%), which provides meaningful insights into how shootings change with increasing disadvantage.
+
+# ==========================================
+# 🔹 Final Takeaways
+# ==========================================
+# ✔ More disadvantaged areas experience significantly higher gun violence.
+# ✔ A small increase in disadvantage (e.g., 10%) has a noticeable effect on shootings per 100k.
+# ✔ The statistical significance (high T-score & low P-value) confirms this is not due to chance.
+# ✔ The intercept is not meaningful, but the slope tells us how much shootings increase with disadvantage.
